@@ -1,6 +1,6 @@
 # API de Gestión de Pólizas
 
-**Módulo 2 — Prueba técnica prática (Hands-on Code Challenge)**
+**Módulo 2 — Prueba técnica práctica (Hands-on Code Challenge)**
 API REST de gestión de pólizas de arrendamiento de inmuebles (individuales y
 colectivas), con reglas de negocio, integración con un CORE transaccional legado
 (simulado) y seguridad mínima por encabezado.
