@@ -406,7 +406,7 @@ INFO  c.j.p.controller.CoreMockController - Intento de envío al CORE: evento=RE
 | `NotificacionCorePostCommitIntegrationTest` | adaptador HTTP real contra un CORE simulado (verifica que el evento se envía **después** del commit) | 1 |
 | **Total** | | **131** |
 
-Cobertura de líneas: **99,45 %** (363 de 365). Informe:
+Cobertura de líneas: **99,45 %** (364 de 366). Informe:
 `target/site/jacoco/index.html`.
 
 ## 11. Notas de implementación
