@@ -8,8 +8,10 @@ import com.jmendez.polizas.model.TipoPoliza;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 /**
  * Petición de creación de una póliza.
@@ -43,14 +45,21 @@ public record CrearPolizaRequest(
 
 		@NotNull(message = "el canon mensual es obligatorio")
 		@DecimalMin(value = "0.01", message = "el canon mensual debe ser mayor que cero")
+		@Digits(integer = 17, fraction = 2,
+				message = "el canon mensual admite como máximo 17 dígitos enteros y 2 decimales")
 		BigDecimal canonMensual,
 
+		@Digits(integer = 17, fraction = 2,
+				message = "la prima admite como máximo 17 dígitos enteros y 2 decimales")
 		BigDecimal prima,
 
+		@Size(max = 200, message = "el nombre del tomador admite como máximo 200 caracteres")
 		String nombreTomador,
 
+		@Size(max = 200, message = "el nombre del asegurado admite como máximo 200 caracteres")
 		String nombreAsegurado,
 
+		@Size(max = 200, message = "el nombre del beneficiario admite como máximo 200 caracteres")
 		String nombreBeneficiario,
 
 		@Valid

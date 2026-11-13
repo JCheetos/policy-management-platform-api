@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -32,6 +33,16 @@ public class Riesgo {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name = "id")
 	private Long id;
+
+	/**
+	 * Versión de la fila para el control de concurrencia optimista.
+	 *
+	 * <p>Impide que dos cancelaciones simultáneas del mismo riesgo se pisen entre
+	 * sí: la segunda operación recibe un conflicto (HTTP 409).
+	 */
+	@Version
+	@Column(name = "version", nullable = false)
+	private Integer version;
 
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	@JoinColumn(name = "poliza_id", nullable = false)

@@ -12,7 +12,7 @@ import com.jmendez.polizas.exception.PolizaNoEncontradaException;
 import com.jmendez.polizas.exception.RiesgoNoEncontradoException;
 import com.jmendez.polizas.model.EstadoRiesgo;
 import com.jmendez.polizas.model.Riesgo;
-import com.jmendez.polizas.port.CoreGateway;
+import com.jmendez.polizas.port.NotificacionCore;
 import com.jmendez.polizas.repository.PolizaRepository;
 import com.jmendez.polizas.repository.RiesgoRepository;
 
@@ -32,20 +32,20 @@ public class RiesgoService {
 
 	private final PolizaRepository polizaRepository;
 	private final RiesgoRepository riesgoRepository;
-	private final CoreGateway coreGateway;
+	private final NotificacionCore notificacionCore;
 	private final ReglasPoliza reglas;
 
 	/**
 	 * @param polizaRepository puerto de persistencia de pólizas
 	 * @param riesgoRepository puerto de persistencia de riesgos
-	 * @param coreGateway      puerto de salida hacia el CORE
+	 * @param notificacionCore puerto de salida hacia el CORE (notificación post-commit)
 	 * @param reglas           reglas de negocio puras
 	 */
 	public RiesgoService(PolizaRepository polizaRepository, RiesgoRepository riesgoRepository,
-			CoreGateway coreGateway, ReglasPoliza reglas) {
+			NotificacionCore notificacionCore, ReglasPoliza reglas) {
 		this.polizaRepository = polizaRepository;
 		this.riesgoRepository = riesgoRepository;
-		this.coreGateway = coreGateway;
+		this.notificacionCore = notificacionCore;
 		this.reglas = reglas;
 	}
 
@@ -87,15 +87,16 @@ public class RiesgoService {
 	}
 
 	/**
-	 * Notifica al CORE de forma {@code best-effort}: si la comunicación falla,
-	 * el error queda registrado y la operación de negocio no se revierte.
+	 * Notifica al CORE del evento de negocio.
+	 *
+	 * <p>El envío se difiere hasta después del commit (implementación por
+	 * defecto del puerto {@link NotificacionCore}) y es {@code best-effort}: un
+	 * fallo de comunicación queda registrado y la cancelación no se revierte.
+	 *
+	 * @param evento   nombre del evento
+	 * @param polizaId identificador de la póliza afectada
 	 */
 	private void notificarCore(String evento, Long polizaId) {
-		try {
-			coreGateway.notificarEvento(evento, polizaId);
-		} catch (Exception excepcion) {
-			LOG.error("No fue posible notificar al CORE el evento {} del riesgo. La operación de negocio se mantiene.",
-					evento, excepcion);
-		}
+		notificacionCore.notificar(evento, polizaId);
 	}
 }

@@ -29,16 +29,21 @@ public class ReglasPoliza {
 	public static final int ESCALA_MONEDA = 2;
 
 	/**
-	 * Regla 1: una póliza individual solo puede tener un riesgo.
+	 * Regla 1: una póliza individual tiene **exactamente** un riesgo.
+	 *
+	 * <p>Al crear la póliza, una individual con cero riesgos o con más de uno
+	 * viola la regla: la póliza debe nacer con su único riesgo. Las colectivas
+	 * admiten de cero a N riesgos en el alta (se pueden agregar después).
 	 *
 	 * @param tipo          tipo de la póliza
 	 * @param cantidadRiesgos número de riesgos que se pretende asociar
-	 * @throws ReglaNegocioException si la póliza es individual y recibe más de un riesgo
+	 * @throws ReglaNegocioException si la póliza es individual y no recibe exactamente un riesgo
 	 */
 	public void validarCantidadDeRiesgos(TipoPoliza tipo, int cantidadRiesgos) {
-		if (tipo == TipoPoliza.INDIVIDUAL && cantidadRiesgos > 1) {
+		if (tipo == TipoPoliza.INDIVIDUAL && cantidadRiesgos != 1) {
 			throw new ReglaNegocioException(
-					"Una póliza individual solo puede tener un riesgo. Se recibieron " + cantidadRiesgos + " riesgos.");
+					"Una póliza individual debe tener exactamente un riesgo. Se recibieron " + cantidadRiesgos
+							+ " riesgos.");
 		}
 	}
 
@@ -52,6 +57,24 @@ public class ReglasPoliza {
 		if (poliza.getTipo() != TipoPoliza.COLECTIVA) {
 			throw new ReglaNegocioException("Solo las pólizas colectivas admiten riesgos adicionales. La póliza "
 					+ poliza.getId() + " es de tipo " + poliza.getTipo() + ".");
+		}
+	}
+
+	/**
+	 * Regla 5: una póliza cancelada es terminal y no admite riesgos nuevos.
+	 *
+	 * <p>Sin esta validación se podía crear un riesgo {@code ACTIVO} dentro de
+	 * una póliza ya cancelada: un riesgo vivo en un agregado terminal que,
+	 * además, ya no se podría cancelar (la regla de cancelación en cascada lo
+	 * había dejado atrás).
+	 *
+	 * @param poliza póliza destino del nuevo riesgo
+	 * @throws ReglaNegocioException si la póliza está cancelada
+	 */
+	public void validarEstadoParaAgregarRiesgo(Poliza poliza) {
+		if (poliza.getEstado() == EstadoPoliza.CANCELADA) {
+			throw new ReglaNegocioException(
+					"No se puede agregar riesgos a la póliza " + poliza.getId() + " porque está CANCELADA.");
 		}
 	}
 
@@ -112,11 +135,26 @@ public class ReglasPoliza {
 	 *
 	 * @param canonMensual  canon vigente
 	 * @param ipcPorcentaje incremento porcentual del IPC (por ejemplo {@code 3.5})
-	 * @return canon renewaldo con dos decimales
+	 * @return canon renovado con dos decimales
 	 */
 	public BigDecimal calcularCanonRenovado(BigDecimal canonMensual, BigDecimal ipcPorcentaje) {
 		return canonMensual.multiply(CIENTO.add(ipcPorcentaje))
 				.divide(CIENTO, ESCALA_MONEDA, RoundingMode.HALF_UP);
+	}
+
+	/**
+	 * Normaliza un importe monetario a la escala de la base de datos.
+	 *
+	 * <p>Las columnas monetarias se definen como {@code DECIMAL(19,2)}: sin esta
+	 * normalización, un importe con más decimales (por ejemplo {@code 1000.555})
+	 * se redondearía en la base de datos y la respuesta de la API divergiría de
+	 * lo almacenado.
+	 *
+	 * @param monto importe a normalizar (puede ser {@code null})
+	 * @return el importe con dos decimales, o {@code null} si el importe era {@code null}
+	 */
+	public BigDecimal normalizarMonto(BigDecimal monto) {
+		return monto == null ? null : monto.setScale(ESCALA_MONEDA, RoundingMode.HALF_UP);
 	}
 
 	/**

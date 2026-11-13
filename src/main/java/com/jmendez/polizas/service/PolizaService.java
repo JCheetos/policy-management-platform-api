@@ -1,6 +1,8 @@
 package com.jmendez.polizas.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.Period;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -19,7 +21,7 @@ import com.jmendez.polizas.model.EstadoRiesgo;
 import com.jmendez.polizas.model.Poliza;
 import com.jmendez.polizas.model.Riesgo;
 import com.jmendez.polizas.model.TipoPoliza;
-import com.jmendez.polizas.port.CoreGateway;
+import com.jmendez.polizas.port.NotificacionCore;
 import com.jmendez.polizas.repository.PolizaRepository;
 import com.jmendez.polizas.repository.PolizaSpecifications;
 import com.jmendez.polizas.repository.RiesgoRepository;
@@ -31,7 +33,7 @@ import com.jmendez.polizas.repository.RiesgoRepository;
  * cancelar, agregar riesgo) aplicando las reglas de negocio de
  * {@link ReglasPoliza}. No conoce HTTP ni SQL: depende de puertos de
  * persistencia ({@link PolizaRepository}, {@link RiesgoRepository}) y del puerto
- * de salida hacia el CORE ({@link CoreGateway}).
+ * de salida hacia el CORE ({@link NotificacionCore}).
  */
 @Service
 public class PolizaService {
@@ -52,22 +54,22 @@ public class PolizaService {
 
 	private final PolizaRepository polizaRepository;
 	private final RiesgoRepository riesgoRepository;
-	private final CoreGateway coreGateway;
+	private final NotificacionCore notificacionCore;
 	private final ReglasPoliza reglas;
 	private final BigDecimal ipcPorcentaje;
 
 	/**
 	 * @param polizaRepository puerto de persistencia de pólizas
 	 * @param riesgoRepository puerto de persistencia de riesgos
-	 * @param coreGateway      puerto de salida hacia el CORE
+	 * @param notificacionCore puerto de salida hacia el CORE (notificación post-commit)
 	 * @param reglas           reglas de negocio puras
 	 * @param propiedades      propiedades de la aplicación (IPC de la renovación)
 	 */
 	public PolizaService(PolizaRepository polizaRepository, RiesgoRepository riesgoRepository,
-			CoreGateway coreGateway, ReglasPoliza reglas, PropiedadesApp propiedades) {
+			NotificacionCore notificacionCore, ReglasPoliza reglas, PropiedadesApp propiedades) {
 		this.polizaRepository = polizaRepository;
 		this.riesgoRepository = riesgoRepository;
-		this.coreGateway = coreGateway;
+		this.notificacionCore = notificacionCore;
 		this.reglas = reglas;
 		this.ipcPorcentaje = propiedades.getIpcPorcentaje();
 	}
@@ -96,7 +98,8 @@ public class PolizaService {
 		reglas.validarCantidadDeRiesgos(solicitud.tipo(), riesgosSolicitados.size());
 		validarPeriodo(solicitud);
 
-		BigDecimal prima = reglas.calcularPrima(solicitud.canonMensual(), solicitud.mesesVigencia());
+		BigDecimal prima = reglas.calcularPrima(reglas.normalizarMonto(solicitud.canonMensual()),
+				solicitud.mesesVigencia());
 		if (solicitud.prima() != null && solicitud.prima().compareTo(prima) != 0) {
 			throw new SolicitudInvalidaException("La prima enviada (" + solicitud.prima()
 					+ ") no corresponde al canon mensual multiplicado por los meses de vigencia (" + prima + ").");
@@ -108,8 +111,8 @@ public class PolizaService {
 		poliza.setFechaInicio(solicitud.fechaInicio());
 		poliza.setFechaFin(solicitud.fechaFin());
 		poliza.setMesesVigencia(solicitud.mesesVigencia());
-		poliza.setCanonMensual(solicitud.canonMensual());
-		poliza.setPrima(prima);
+		poliza.setCanonMensual(reglas.normalizarMonto(solicitud.canonMensual()));
+		poliza.setPrima(reglas.normalizarMonto(prima));
 		poliza.setNombreTomador(solicitud.nombreTomador());
 		poliza.setNombreAsegurado(solicitud.nombreAsegurado());
 		poliza.setNombreBeneficiario(solicitud.nombreBeneficiario());
@@ -171,6 +174,7 @@ public class PolizaService {
 	public Riesgo agregarRiesgo(Long polizaId, RiesgoRequest solicitud) {
 		Poliza poliza = obtener(polizaId);
 		reglas.validarTipoParaAgregarRiesgo(poliza);
+		reglas.validarEstadoParaAgregarRiesgo(poliza);
 
 		Riesgo riesgo = construirRiesgo(solicitud);
 		riesgo.setPoliza(poliza);
@@ -192,31 +196,54 @@ public class PolizaService {
 				.orElseThrow(() -> new PolizaNoEncontradaException(polizaId));
 	}
 
+	/**
+	 * Valida el periodo de vigencia: debe durar al menos un día y ser coherente
+	 * con los meses de vigencia declarados.
+	 *
+	 * @param solicitud datos de alta de la póliza
+	 */
 	private void validarPeriodo(CrearPolizaRequest solicitud) {
-		if (solicitud.fechaFin().isBefore(solicitud.fechaInicio())) {
-			throw new SolicitudInvalidaException("La fecha de fin de la vigencia (" + solicitud.fechaFin()
-					+ ") no puede ser anterior a la fecha de inicio (" + solicitud.fechaInicio() + ").");
+		LocalDate inicio = solicitud.fechaInicio();
+		LocalDate fin = solicitud.fechaFin();
+
+		if (fin.isBefore(inicio)) {
+			throw new SolicitudInvalidaException("La fecha de fin de la vigencia (" + fin
+					+ ") no puede ser anterior a la fecha de inicio (" + inicio + ").");
+		}
+		if (fin.equals(inicio)) {
+			throw new SolicitudInvalidaException("El periodo de vigencia debe tener al menos un día: la fecha de fin ("
+					+ fin + ") debe ser posterior a la fecha de inicio (" + inicio + ").");
+		}
+
+		int mesesDelPeriodo = (int) Period.between(inicio, fin.plusDays(1)).toTotalMonths();
+		if (mesesDelPeriodo != solicitud.mesesVigencia()) {
+			throw new SolicitudInvalidaException("El periodo de vigencia (" + inicio + " → " + fin + ") cubre "
+					+ mesesDelPeriodo + " meses, pero se declararon " + solicitud.mesesVigencia()
+					+ " meses de vigencia. Ambos valores deben coincidir.");
 		}
 	}
 
 	private Riesgo construirRiesgo(RiesgoRequest solicitud) {
 		Riesgo riesgo = new Riesgo();
 		riesgo.setDescripcion(solicitud.descripcion());
-		riesgo.setValorAsegurado(solicitud.valorAsegurado());
+		riesgo.setValorAsegurado(reglas.normalizarMonto(solicitud.valorAsegurado()));
 		riesgo.setEstado(EstadoRiesgo.ACTIVO);
 		return riesgo;
 	}
 
 	/**
-	 * Notifica al CORE de forma {@code best-effort}: si la comunicación falla,
-	 * el error queda registrado y la operación de negocio no se revierte.
+	 * Notifica al CORE del evento de negocio.
+	 *
+	 * <p>El envío se difiere hasta después del commit (implementación por
+	 * defecto del puerto {@link NotificacionCore}) y es {@code best-effort}: un
+	 * fallo de comunicación queda registrado y la operación de negocio no se
+	 * revierte, porque el CORE es un sistema externo que no puede decidir sobre
+	 * el estado de la póliza.
+	 *
+	 * @param evento   nombre del evento
+	 * @param polizaId identificador de la póliza afectada
 	 */
 	private void notificarCore(String evento, Long polizaId) {
-		try {
-			coreGateway.notificarEvento(evento, polizaId);
-		} catch (Exception excepcion) {
-			LOG.error("No fue posible notificar al CORE el evento {} de la póliza {}. La operación de negocio se mantiene.",
-					evento, polizaId, excepcion);
-		}
+		notificacionCore.notificar(evento, polizaId);
 	}
 }

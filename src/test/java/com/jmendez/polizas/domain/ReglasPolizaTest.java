@@ -55,7 +55,24 @@ class ReglasPolizaTest {
 	void unaPolizaIndividualNoAdmiteVariosRiesgos() {
 		assertThatThrownBy(() -> reglas.validarCantidadDeRiesgos(TipoPoliza.INDIVIDUAL, 2))
 				.isInstanceOf(ReglaNegocioException.class)
-				.hasMessageContaining("Una póliza individual solo puede tener un riesgo");
+				.hasMessageContaining("exactamente un riesgo")
+				.hasMessageContaining("Se recibieron 2 riesgos");
+	}
+
+	@DisplayName("Regla 1: una póliza individual sin riesgos viola la regla")
+	@Test
+	void unaPolizaIndividualNoAdmiteCeroRiesgos() {
+		assertThatThrownBy(() -> reglas.validarCantidadDeRiesgos(TipoPoliza.INDIVIDUAL, 0))
+				.isInstanceOf(ReglaNegocioException.class)
+				.hasMessageContaining("exactamente un riesgo")
+				.hasMessageContaining("Se recibieron 0 riesgos");
+	}
+
+	@DisplayName("Regla 1: una póliza colectiva puede crearse sin riesgos y agregarlos después")
+	@Test
+	void unaPolizaColectivaAdmiteCeroRiesgos() {
+		reglas.validarCantidadDeRiesgos(TipoPoliza.COLECTIVA, 0);
+		reglas.validarCantidadDeRiesgos(TipoPoliza.COLECTIVA, 12);
 	}
 
 	@DisplayName("Regla 4: solo las pólizas colectivas admiten riesgos adicionales")
@@ -66,6 +83,17 @@ class ReglasPolizaTest {
 		assertThatThrownBy(() -> reglas.validarTipoParaAgregarRiesgo(poliza(TipoPoliza.INDIVIDUAL, EstadoPoliza.VIGENTE)))
 				.isInstanceOf(ReglaNegocioException.class)
 				.hasMessageContaining("Solo las pólizas colectivas admiten riesgos adicionales");
+	}
+
+	@DisplayName("Regla 5: una póliza cancelada no admite riesgos adicionales")
+	@Test
+	void unaPolizaCanceladaNoAdmiteRiesgosAdicionales() {
+		reglas.validarEstadoParaAgregarRiesgo(poliza(TipoPoliza.COLECTIVA, EstadoPoliza.VIGENTE));
+		reglas.validarEstadoParaAgregarRiesgo(poliza(TipoPoliza.COLECTIVA, EstadoPoliza.RENOVADA));
+
+		assertThatThrownBy(() -> reglas.validarEstadoParaAgregarRiesgo(poliza(TipoPoliza.COLECTIVA, EstadoPoliza.CANCELADA)))
+				.isInstanceOf(ReglaNegocioException.class)
+				.hasMessageContaining("No se puede agregar riesgos a la póliza 10 porque está CANCELADA");
 	}
 
 	@DisplayName("Regla 2: no se puede renovar una póliza cancelada")
@@ -170,5 +198,15 @@ class ReglasPolizaTest {
 		reglas.cancelar(poliza, List.of());
 
 		assertThat(poliza.getEstado()).isEqualTo(EstadoPoliza.CANCELADA);
+	}
+
+	@DisplayName("Los importes monetarios se normalizan a dos decimales")
+	@Test
+	void losImportesMonetariosSeNormalizanADosDecimales() {
+		BigDecimal normalizado = reglas.normalizarMonto(new BigDecimal("1000.555"));
+
+		assertThat(normalizado).isEqualByComparingTo(new BigDecimal("1000.56"));
+		assertThat(normalizado.scale()).isEqualTo(2);
+		assertThat(reglas.normalizarMonto(null)).isNull();
 	}
 }

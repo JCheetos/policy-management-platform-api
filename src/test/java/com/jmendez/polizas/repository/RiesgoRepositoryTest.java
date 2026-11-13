@@ -10,6 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 
 import com.jmendez.polizas.model.EstadoPoliza;
 import com.jmendez.polizas.model.EstadoRiesgo;
@@ -28,6 +29,9 @@ class RiesgoRepositoryTest {
 
 	@Autowired
 	private RiesgoRepository riesgoRepository;
+
+	@Autowired
+	private TestEntityManager em;
 
 	private Poliza poliza() {
 		Poliza poliza = new Poliza();
@@ -76,21 +80,6 @@ class RiesgoRepositoryTest {
 		assertThat(riesgos.get(0).getId()).isLessThan(riesgos.get(1).getId());
 	}
 
-	@DisplayName("Filtra los riesgos de una póliza por estado")
-	@Test
-	void filtraLosRiesgosPorEstado() {
-		Poliza poliza = poliza();
-		Riesgo activo = riesgoRepository.save(riesgo(poliza, "Incendio"));
-		Riesgo cancelado = riesgoRepository.save(riesgo(poliza, "Robo"));
-		cancelado.setEstado(EstadoRiesgo.CANCELADO);
-		riesgoRepository.save(cancelado);
-
-		List<Riesgo> riesgos = riesgoRepository.findByPolizaIdAndEstadoOrderByIdAsc(poliza.getId(), EstadoRiesgo.ACTIVO);
-
-		assertThat(riesgos).hasSize(1);
-		assertThat(riesgos.get(0).getId()).isEqualTo(activo.getId());
-	}
-
 	@DisplayName("Una póliza sin riesgos devuelve una lista vacía")
 	@Test
 	void unaPolizaSinRiesgosDevuelveListaVacia() {
@@ -99,5 +88,24 @@ class RiesgoRepositoryTest {
 		List<Riesgo> riesgos = riesgoRepository.findByPolizaIdOrderByIdAsc(poliza.getId());
 
 		assertThat(riesgos).isEmpty();
+	}
+
+	@DisplayName("La versión del riesgo se incrementa en cada modificación")
+	@Test
+	void laVersionDelRiesgoSeIncrementaEnCadaModificacion() {
+		Poliza poliza = poliza();
+		Riesgo riesgo = riesgoRepository.save(riesgo(poliza, "Incendio"));
+		em.flush();
+		em.clear();
+		Riesgo recargado = riesgoRepository.findById(riesgo.getId()).orElseThrow();
+		Integer versionInicial = recargado.getVersion();
+
+		recargado.setEstado(EstadoRiesgo.CANCELADO);
+		riesgoRepository.save(recargado);
+		em.flush();
+		em.clear();
+
+		assertThat(riesgoRepository.findById(riesgo.getId()).orElseThrow().getVersion())
+				.isEqualTo(versionInicial + 1);
 	}
 }

@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.jmendez.polizas.exception.PolizaNoEncontradaException;
@@ -271,5 +272,77 @@ class PolizaControllerTest {
 				.andExpect(status().isInternalServerError())
 				.andExpect(jsonPath("$.mensaje").value("Ocurrió un error inesperado."))
 				.andExpect(jsonPath("$.status").value(500));
+	}
+
+	@DisplayName("POST /polizas/{id}/renovar con un método no soportado devuelve 405")
+	@Test
+	void renovarConUnMetodoNoSoportadoDevuelve405() throws Exception {
+		mockMvc.perform(get("/polizas/1/renovar").header("x-api-key", API_KEY))
+				.andExpect(status().isMethodNotAllowed())
+				.andExpect(jsonPath("$.status").value(405));
+	}
+
+	@DisplayName("POST /polizas con un tipo de contenido no soportado devuelve 415")
+	@Test
+	void crearPolizaConTipoDeContenidoNoSoportadoDevuelve415() throws Exception {
+		mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_XML)
+				.content("<poliza/>"))
+				.andExpect(status().isUnsupportedMediaType())
+				.andExpect(jsonPath("$.status").value(415));
+	}
+
+	@DisplayName("Un conflicto de concurrencia optimista devuelve 409")
+	@Test
+	void unConflictoDeConcurrenciaOptimistaDevuelve409() throws Exception {
+		when(polizaService.renovar(1L)).thenThrow(new ObjectOptimisticLockingFailureException(Poliza.class, 1L));
+
+		mockMvc.perform(post("/polizas/1/renovar").header("x-api-key", API_KEY))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409))
+				.andExpect(jsonPath("$.mensaje")
+						.value(org.hamcrest.Matchers.containsString("modificada por otra operación")));
+	}
+
+	@DisplayName("POST /polizas con un nombre demasiado largo devuelve 400")
+	@Test
+	void crearPolizaConNombreDemasiadoLargoDevuelve400() throws Exception {
+		mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"tipo": "COLECTIVA", "fechaInicio": "2026-01-01", "fechaFin": "2026-12-31",
+						 "mesesVigencia": 12, "canonMensual": 2500000.00, "nombreTomador": "%s"}
+						""".formatted("a".repeat(201))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.erroresCampos.nombreTomador").exists());
+	}
+
+	@DisplayName("POST /polizas con un canon con más de dos decimales devuelve 400")
+	@Test
+	void crearPolizaConCanonConMasDeDosDecimalesDevuelve400() throws Exception {
+		mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"tipo": "COLECTIVA", "fechaInicio": "2026-01-01", "fechaFin": "2026-12-31",
+						 "mesesVigencia": 12, "canonMensual": 1000.555}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.erroresCampos.canonMensual").exists());
+	}
+
+	@DisplayName("POST /polizas/{id}/riesgos con una descripción demasiado larga devuelve 400")
+	@Test
+	void agregarRiesgoConDescripcionDemasiadoLargaDevuelve400() throws Exception {
+		mockMvc.perform(post("/polizas/1/riesgos")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"descripcion": "%s", "valorAsegurado": 80000000.00}
+						""".formatted("r".repeat(501))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.erroresCampos.descripcion").exists());
 	}
 }

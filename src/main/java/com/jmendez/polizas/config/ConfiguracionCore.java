@@ -8,7 +8,9 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import com.jmendez.polizas.infrastructure.core.CoreHttpAdapter;
+import com.jmendez.polizas.infrastructure.core.NotificacionCorePostCommit;
 import com.jmendez.polizas.port.CoreGateway;
+import com.jmendez.polizas.port.NotificacionCore;
 
 /**
  * Configuración del adaptador de salida hacia el CORE transaccional legado.
@@ -34,5 +36,17 @@ public class ConfiguracionCore {
 				.build();
 
 		return new CoreHttpAdapter(cliente, propiedades.getCore().getUrl(), propiedades.getApiKey());
+	}
+
+	/**
+	 * Expone el puerto {@link NotificacionCore}: difiere el envío al CORE hasta
+	 * después del commit de la transacción y aplica la política {@code best-effort}.
+	 *
+	 * @param coreGateway transporte de salida hacia el CORE
+	 * @return implementación del puerto {@link NotificacionCore}
+	 */
+	@Bean
+	public NotificacionCore notificacionCore(CoreGateway coreGateway) {
+		return new NotificacionCorePostCommit(coreGateway);
 	}
 }

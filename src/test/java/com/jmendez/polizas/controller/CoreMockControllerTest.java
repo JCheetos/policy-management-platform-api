@@ -109,4 +109,30 @@ class CoreMockControllerTest {
 				.andExpect(jsonPath("$.erroresCampos.evento").exists())
 				.andExpect(jsonPath("$.erroresCampos.polizaId").exists());
 	}
+
+	@DisplayName("POST /core-mock/evento con saltos de línea en el evento devuelve 400")
+	@Test
+	void registrarEventoConSaltosDeLineaDevuelve400() throws Exception {
+		mockMvc.perform(post("/core-mock/evento")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"evento": "ACTUALIZACION\\nINFO  usuario comprometido", "polizaId": 555}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.erroresCampos.evento").exists());
+	}
+
+	@DisplayName("POST /core-mock/evento con un evento demasiado largo devuelve 400")
+	@Test
+	void registrarEventoDemasiadoLargoDevuelve400() throws Exception {
+		mockMvc.perform(post("/core-mock/evento")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"evento": "%s", "polizaId": 555}
+						""".formatted("E".repeat(51))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.erroresCampos.evento").exists());
+	}
 }

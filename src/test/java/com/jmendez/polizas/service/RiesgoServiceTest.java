@@ -3,7 +3,6 @@ package com.jmendez.polizas.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,7 +27,7 @@ import com.jmendez.polizas.model.EstadoRiesgo;
 import com.jmendez.polizas.model.Poliza;
 import com.jmendez.polizas.model.Riesgo;
 import com.jmendez.polizas.model.TipoPoliza;
-import com.jmendez.polizas.port.CoreGateway;
+import com.jmendez.polizas.port.NotificacionCore;
 import com.jmendez.polizas.repository.PolizaRepository;
 import com.jmendez.polizas.repository.RiesgoRepository;
 
@@ -45,13 +44,13 @@ class RiesgoServiceTest {
 	private RiesgoRepository riesgoRepository;
 
 	@Mock
-	private CoreGateway coreGateway;
+	private NotificacionCore notificacionCore;
 
 	private RiesgoService servicio;
 
 	@BeforeEach
 	void setUp() {
-		servicio = new RiesgoService(polizaRepository, riesgoRepository, coreGateway, new ReglasPoliza());
+		servicio = new RiesgoService(polizaRepository, riesgoRepository, notificacionCore, new ReglasPoliza());
 	}
 
 	private Poliza poliza(EstadoPoliza estado) {
@@ -103,7 +102,7 @@ class RiesgoServiceTest {
 		Riesgo cancelado = servicio.cancelar(5L);
 
 		assertThat(cancelado.getEstado()).isEqualTo(EstadoRiesgo.CANCELADO);
-		verify(coreGateway).notificarEvento(RiesgoService.EVENTO_CANCELACION_RIESGO, 1L);
+		verify(notificacionCore).notificar(RiesgoService.EVENTO_CANCELACION_RIESGO, 1L);
 	}
 
 	@DisplayName("Cancelar un riesgo inexistente devuelve el error de recurso no encontrado")
@@ -124,7 +123,7 @@ class RiesgoServiceTest {
 				.isInstanceOf(ReglaNegocioException.class)
 				.hasMessageContaining("ya se encuentra CANCELADO");
 
-		verify(coreGateway, never()).notificarEvento(any(), any());
+		verify(notificacionCore, never()).notificar(any(), any());
 	}
 
 	@DisplayName("Cancelar un riesgo de una póliza cancelada viola la regla de negocio")
@@ -138,16 +137,16 @@ class RiesgoServiceTest {
 				.hasMessageContaining("su póliza se encuentra CANCELADA");
 	}
 
-	@DisplayName("Un fallo al notificar al CORE no revierte la cancelación del riesgo")
+	@DisplayName("La cancelación delega la notificación al CORE en el puerto de salida")
 	@Test
-	void unFalloEnElCoreNoRevierteLaCancelacion() {
+	void laNotificacionAlCoreSeDelegaEnElPuertoDeSalida() {
 		Riesgo riesgo = riesgo(EstadoRiesgo.ACTIVO, EstadoPoliza.VIGENTE);
 		when(riesgoRepository.findById(5L)).thenReturn(Optional.of(riesgo));
 		when(riesgoRepository.save(any(Riesgo.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
-		doThrow(new IllegalStateException("CORE no disponible")).when(coreGateway).notificarEvento(any(), any());
 
 		Riesgo cancelado = servicio.cancelar(5L);
 
 		assertThat(cancelado.getEstado()).isEqualTo(EstadoRiesgo.CANCELADO);
+		verify(notificacionCore).notificar(RiesgoService.EVENTO_CANCELACION_RIESGO, 1L);
 	}
 }

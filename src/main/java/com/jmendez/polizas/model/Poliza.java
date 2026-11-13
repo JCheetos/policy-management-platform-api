@@ -15,6 +15,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -34,6 +35,17 @@ public class Poliza {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	@Column(name = "id")
 	private Long id;
+
+	/**
+	 * Versión de la fila para el control de concurrencia optimista.
+	 *
+	 * <p>Dos renovaciones simultáneas de la misma póliza compiten por la misma
+	 * versión: solo una gana y la otra recibe un conflicto (HTTP 409) en lugar
+	 * de perder silenciosamente el ajuste del IPC.
+	 */
+	@Version
+	@Column(name = "version", nullable = false)
+	private Integer version;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "tipo", nullable = false, length = 20)

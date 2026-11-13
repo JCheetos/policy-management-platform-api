@@ -1,6 +1,7 @@
 package com.jmendez.polizas.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -18,11 +19,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.jmendez.polizas.model.Poliza;
 import com.jmendez.polizas.port.CoreGateway;
+import com.jmendez.polizas.repository.PolizaRepository;
 import com.jmendez.polizas.service.PolizaService;
 import com.jmendez.polizas.service.RiesgoService;
 
@@ -50,6 +54,9 @@ class ApiPolizasIntegrationTest {
 
 	@Autowired
 	private RiesgoService riesgoService;
+
+	@Autowired
+	private PolizaRepository polizaRepository;
 
 	private String cuerpoPolizaColectiva() {
 		return """
@@ -186,6 +193,79 @@ class ApiPolizasIntegrationTest {
 						"""))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.mensaje").value(org.hamcrest.Matchers.containsString("un riesgo")));
+	}
+
+	@DisplayName("Regla 1: crear una póliza individual sin riesgos devuelve 409")
+	@Test
+	void crearPolizaIndividualSinRiesgosDevuelve409() throws Exception {
+		mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{
+						  "tipo": "INDIVIDUAL",
+						  "fechaInicio": "2026-01-01",
+						  "fechaFin": "2026-12-31",
+						  "mesesVigencia": 12,
+						  "canonMensual": 800000.00
+						}
+						"""))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.mensaje").value(org.hamcrest.Matchers.containsString("exactamente un riesgo")));
+
+		assertThat(polizaService.listar(null, null)).isEmpty();
+	}
+
+	@DisplayName("Regla 5: agregar un riesgo a una póliza cancelada devuelve 409")
+	@Test
+	void agregarRiesgoAPolizaCanceladaDevuelve409() throws Exception {
+		String respuesta = mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(cuerpoPolizaColectiva()))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+		Long polizaId = leerId(respuesta, "$.id");
+
+		mockMvc.perform(post("/polizas/" + polizaId + "/cancelar").header("x-api-key", API_KEY))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/polizas/" + polizaId + "/riesgos")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"descripcion": "Robo", "valorAsegurado": 500000.00}
+						"""))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.mensaje").value(org.hamcrest.Matchers.containsString("CANCELADA")));
+
+		// El riesgo no se creó: la póliza cancelada sigue con su único riesgo inicial.
+		mockMvc.perform(get("/polizas/" + polizaId + "/riesgos").header("x-api-key", API_KEY))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1));
+	}
+
+	@DisplayName("Una modificación concurrente invalida la versión de la póliza")
+	@Test
+	void unaModificacionConcurrenteInvalidaLaVersionDeLaPoliza() throws Exception {
+		String respuesta = mockMvc.perform(post("/polizas")
+				.header("x-api-key", API_KEY)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(cuerpoPolizaColectiva()))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+		Long polizaId = leerId(respuesta, "$.id");
+
+		// Copia obsoleta de la póliza (simula una petición que ya la había leído).
+		Poliza copiaObsoleta = polizaRepository.findById(polizaId).orElseThrow();
+
+		// Otra operación renueva la póliza: la versión del registro cambia.
+		mockMvc.perform(post("/polizas/" + polizaId + "/renovar").header("x-api-key", API_KEY))
+				.andExpect(status().isOk());
+
+		// La copia obsoleta no puede confirmarse: se pierde la actualización, no la operación.
+		assertThatThrownBy(() -> polizaRepository.save(copiaObsoleta))
+				.isInstanceOf(OptimisticLockingFailureException.class);
 	}
 
 	@DisplayName("Regla 2: renovar una póliza cancelada devuelve 409")
